@@ -1,5 +1,5 @@
 import express from 'express';
-import { Project, User, ProjectMember, Task } from '../models/index.js';
+import { Project, User, Task } from '../models/index.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { adminMiddleware } from '../middleware/admin.js';
 
@@ -10,46 +10,19 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     let projects;
     if (req.user.role === 'admin') {
-      // Admins see all projects
-      projects = await Project.findAll({
-        include: [
-          { model: User, as: 'creator', attributes: ['id', 'name', 'email'] },
-          { model: User, as: 'members', attributes: ['id', 'name', 'email'] }
-        ]
-      });
+      projects = await Project.find()
+        .populate('createdBy', 'id name email')
+        .populate('members', 'id name email');
     } else {
-      // Members see projects they are members of
-      projects = await Project.findAll({
-        include: [
-          { model: User, as: 'creator', attributes: ['id', 'name', 'email'] },
-          { 
-            model: User, 
-            as: 'members', 
-            attributes: ['id', 'name', 'email'],
-            through: { attributes: [] },
-            where: { id: req.user.id }
-          }
+      projects = await Project.find({
+        $or: [
+          { createdBy: req.user._id },
+          { members: req.user._id }
         ]
-      });
-
-      // Fetch projects they created (just in case)
-      const createdProjects = await Project.findAll({
-        where: { createdBy: req.user.id },
-        include: [
-          { model: User, as: 'creator', attributes: ['id', 'name', 'email'] },
-          { model: User, as: 'members', attributes: ['id', 'name', 'email'] }
-        ]
-      });
-
-      // Merge and deduplicate
-      const projectIds = new Set(projects.map(p => p.id));
-      createdProjects.forEach(p => {
-        if (!projectIds.has(p.id)) {
-          projects.push(p);
-        }
-      });
+      })
+        .populate('createdBy', 'id name email')
+        .populate('members', 'id name email');
     }
-
     return res.json(projects);
   } catch (error) {
     return res.status(500).json({ message: 'Error retrieving projects', error: error.message });
@@ -59,28 +32,28 @@ router.get('/', authMiddleware, async (req, res) => {
 // Get Project Details
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
-    const project = await Project.findByPk(req.params.id, {
-      include: [
-        { model: User, as: 'creator', attributes: ['id', 'name', 'email'] },
-        { model: User, as: 'members', attributes: ['id', 'name', 'email'] },
-        { model: Task, as: 'tasks' }
-      ]
-    });
+    const project = await Project.findById(req.params.id)
+      .populate('createdBy', 'id name email')
+      .populate('members', 'id name email');
 
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
 
-    // Access control: members must be in the project members list or be the creator
     if (req.user.role !== 'admin') {
-      const isMember = project.members.some(m => m.id === req.user.id);
-      const isCreator = project.createdBy === req.user.id;
+      const isMember = project.members.some(m => m._id.toString() === req.user.id);
+      const isCreator = project.createdBy.toString() === req.user.id;
       if (!isMember && !isCreator) {
         return res.status(403).json({ message: 'Access denied: You are not a member of this project' });
       }
     }
 
-    return res.json(project);
+    const tasks = await Task.find({ project: project._id }).populate('assignedTo', 'id name email');
+    
+    const projectJSON = project.toJSON();
+    projectJSON.tasks = tasks;
+
+    return res.json(projectJSON);
   } catch (error) {
     return res.status(500).json({ message: 'Error retrieving project', error: error.message });
   }
@@ -95,40 +68,27 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
       return res.status(400).json({ message: 'Project name is required' });
     }
 
+    const members = [req.user._id];
+    if (memberIds && Array.isArray(memberIds)) {
+      memberIds.forEach(id => {
+        if (id !== req.user.id && !members.includes(id)) {
+          members.push(id);
+        }
+      });
+    }
+
     const project = await Project.create({
       name,
       description,
-      createdBy: req.user.id
+      createdBy: req.user._id,
+      members
     });
 
-    // Auto-add creator as member
-    await ProjectMember.create({
-      projectId: project.id,
-      userId: req.user.id
-    });
+    const populated = await Project.findById(project._id)
+      .populate('createdBy', 'id name email')
+      .populate('members', 'id name email');
 
-    // Add other members if provided
-    if (memberIds && Array.isArray(memberIds)) {
-      const uniqueMemberIds = [...new Set(memberIds)].filter(id => Number(id) !== req.user.id);
-      
-      const memberLinks = uniqueMemberIds.map(userId => ({
-        projectId: project.id,
-        userId: Number(userId)
-      }));
-
-      if (memberLinks.length > 0) {
-        await ProjectMember.bulkCreate(memberLinks);
-      }
-    }
-
-    const updatedProject = await Project.findByPk(project.id, {
-      include: [
-        { model: User, as: 'creator', attributes: ['id', 'name', 'email'] },
-        { model: User, as: 'members', attributes: ['id', 'name', 'email'] }
-      ]
-    });
-
-    return res.status(201).json(updatedProject);
+    return res.status(201).json(populated);
   } catch (error) {
     return res.status(500).json({ message: 'Error creating project', error: error.message });
   }
@@ -138,22 +98,21 @@ router.post('/', authMiddleware, adminMiddleware, async (req, res) => {
 router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
     const { name, description } = req.body;
-    const project = await Project.findByPk(req.params.id);
+    const project = await Project.findById(req.params.id);
 
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
 
-    await project.update({ name, description });
+    if (name) project.name = name;
+    if (description !== undefined) project.description = description;
+    await project.save();
 
-    const updatedProject = await Project.findByPk(project.id, {
-      include: [
-        { model: User, as: 'creator', attributes: ['id', 'name', 'email'] },
-        { model: User, as: 'members', attributes: ['id', 'name', 'email'] }
-      ]
-    });
+    const populated = await Project.findById(project._id)
+      .populate('createdBy', 'id name email')
+      .populate('members', 'id name email');
 
-    return res.json(updatedProject);
+    return res.json(populated);
   } catch (error) {
     return res.status(500).json({ message: 'Error updating project', error: error.message });
   }
@@ -162,12 +121,14 @@ router.put('/:id', authMiddleware, adminMiddleware, async (req, res) => {
 // Delete Project (Admin only)
 router.delete('/:id', authMiddleware, adminMiddleware, async (req, res) => {
   try {
-    const project = await Project.findByPk(req.params.id);
+    const project = await Project.findById(req.params.id);
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
 
-    await project.destroy();
+    await project.deleteOne();
+    await Task.deleteMany({ project: req.params.id });
+
     return res.json({ message: 'Project deleted successfully' });
   } catch (error) {
     return res.status(500).json({ message: 'Error deleting project', error: error.message });
@@ -184,30 +145,25 @@ router.post('/:id/members', authMiddleware, adminMiddleware, async (req, res) =>
       return res.status(400).json({ message: 'User ID is required' });
     }
 
-    const project = await Project.findByPk(projectId);
+    const project = await Project.findById(projectId);
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
 
-    const user = await User.findByPk(userId);
+    const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    const existingMember = await ProjectMember.findOne({ where: { projectId, userId } });
-    if (existingMember) {
+    if (project.members.includes(userId)) {
       return res.status(400).json({ message: 'User is already a member of this project' });
     }
 
-    await ProjectMember.create({ projectId, userId });
+    project.members.push(userId);
+    await project.save();
 
-    const updatedProject = await Project.findByPk(projectId, {
-      include: [
-        { model: User, as: 'members', attributes: ['id', 'name', 'email'] }
-      ]
-    });
-
-    return res.json({ message: 'Member added successfully', members: updatedProject.members });
+    const populated = await Project.findById(projectId).populate('members', 'id name email');
+    return res.json({ message: 'Member added successfully', members: populated.members });
   } catch (error) {
     return res.status(500).json({ message: 'Error adding member', error: error.message });
   }
@@ -218,20 +174,21 @@ router.delete('/:id/members/:userId', authMiddleware, adminMiddleware, async (re
   try {
     const { id: projectId, userId } = req.params;
 
-    const membership = await ProjectMember.findOne({ where: { projectId, userId } });
-    if (!membership) {
+    const project = await Project.findById(projectId);
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    const index = project.members.indexOf(userId);
+    if (index === -1) {
       return res.status(404).json({ message: 'Membership not found' });
     }
 
-    await membership.destroy();
+    project.members.splice(index, 1);
+    await project.save();
 
-    const updatedProject = await Project.findByPk(projectId, {
-      include: [
-        { model: User, as: 'members', attributes: ['id', 'name', 'email'] }
-      ]
-    });
-
-    return res.json({ message: 'Member removed successfully', members: updatedProject.members });
+    const populated = await Project.findById(projectId).populate('members', 'id name email');
+    return res.json({ message: 'Member removed successfully', members: populated.members });
   } catch (error) {
     return res.status(500).json({ message: 'Error removing member', error: error.message });
   }

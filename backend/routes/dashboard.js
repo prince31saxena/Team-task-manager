@@ -1,5 +1,5 @@
 import express from 'express';
-import { Project, Task, User } from '../models/index.js';
+import { Project, Task } from '../models/index.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -11,38 +11,33 @@ router.get('/stats', authMiddleware, async (req, res) => {
 
     if (req.user.role === 'admin') {
       // Admins see all projects
-      projects = await Project.findAll({
-        include: [{ model: Task, as: 'tasks' }]
-      });
+      projects = await Project.find();
     } else {
-      // Members see projects they are members of
-      projects = await Project.findAll({
-        include: [
-          { 
-            model: User, 
-            as: 'members', 
-            where: { id: req.user.id },
-            attributes: [],
-            through: { attributes: [] }
-          },
-          { model: Task, as: 'tasks' }
+      // Members see projects they are members of or created
+      projects = await Project.find({
+        $or: [
+          { createdBy: req.user._id },
+          { members: req.user._id }
         ]
-      });
-
-      const createdProjects = await Project.findAll({
-        where: { createdBy: req.user.id },
-        include: [{ model: Task, as: 'tasks' }]
-      });
-
-      const projectIds = new Set(projects.map(p => p.id));
-      createdProjects.forEach(p => {
-        if (!projectIds.has(p.id)) {
-          projects.push(p);
-        }
       });
     }
 
     const projectCount = projects.length;
+    const projectIds = projects.map(p => p._id);
+    const tasks = await Task.find({ project: { $in: projectIds } });
+
+    // Group tasks by project ID
+    const tasksByProject = {};
+    projectIds.forEach(id => {
+      tasksByProject[id.toString()] = [];
+    });
+    tasks.forEach(task => {
+      const pId = task.project.toString();
+      if (tasksByProject[pId]) {
+        tasksByProject[pId].push(task);
+      }
+    });
+
     let totalTasks = 0;
     let todoCount = 0;
     let inProgressCount = 0;
@@ -53,7 +48,7 @@ router.get('/stats', authMiddleware, async (req, res) => {
     const allTasks = [];
 
     projects.forEach(project => {
-      const pTasks = project.tasks || [];
+      const pTasks = tasksByProject[project._id.toString()] || [];
       totalTasks += pTasks.length;
 
       let pTodo = 0;

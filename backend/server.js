@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import sequelize from './config/db.js';
+import connectDB from './config/db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,8 +51,8 @@ if (process.env.NODE_ENV === 'production') {
 // Database Sync and Server Startup
 const startServer = async () => {
   try {
-    await sequelize.sync();
-    console.log('Database synced successfully');
+    await connectDB();
+    console.log('Database connected successfully');
     
     app.listen(PORT, () => {
       console.log(`Server is running on port ${PORT}`);

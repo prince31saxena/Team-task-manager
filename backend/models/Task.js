@@ -1,42 +1,63 @@
-import { DataTypes } from 'sequelize';
-import sequelize from '../config/db.js';
+import mongoose from 'mongoose';
 
-const Task = sequelize.define('Task', {
-  id: {
-    type: DataTypes.INTEGER,
-    autoIncrement: true,
-    primaryKey: true,
-  },
+const taskSchema = new mongoose.Schema({
   title: {
-    type: DataTypes.STRING,
-    allowNull: false,
-    validate: {
-      notEmpty: true,
-    },
+    type: String,
+    required: true,
+    trim: true
   },
   description: {
-    type: DataTypes.TEXT,
-    allowNull: true,
+    type: String,
+    default: ''
   },
-  projectId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
+  project: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Project',
+    required: true
   },
   assignedTo: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
   },
   dueDate: {
-    type: DataTypes.DATEONLY,
-    allowNull: false,
+    type: String,
+    required: true
   },
   status: {
-    type: DataTypes.ENUM('todo', 'in-progress', 'done'),
-    defaultValue: 'todo',
-    allowNull: false,
-  },
+    type: String,
+    enum: ['todo', 'in-progress', 'done'],
+    default: 'todo',
+    required: true
+  }
 }, {
   timestamps: true,
+  toJSON: {
+    virtuals: true,
+    transform: (doc, ret) => {
+      ret.id = ret._id.toString();
+      if (ret.project) {
+        ret.projectId = ret.project._id ? ret.project._id.toString() : ret.project.toString();
+      }
+      if (ret.assignedTo) {
+        ret.assignee = ret.assignedTo;
+      }
+      return ret;
+    }
+  },
+  toObject: {
+    virtuals: true
+  }
 });
 
-export default Task;
+// Virtuals for virtual attributes used by the frontend
+taskSchema.virtual('projectId').get(function() {
+  if (!this.project) return null;
+  return this.project._id ? this.project._id.toString() : this.project.toString();
+});
+
+taskSchema.virtual('assignee').get(function() {
+  return this.assignedTo;
+});
+
+export default mongoose.model('Task', taskSchema);

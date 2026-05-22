@@ -1,12 +1,17 @@
 import bcrypt from 'bcryptjs';
-import sequelize from './config/db.js';
-import { User, Project, ProjectMember, Task } from './models/index.js';
+import connectDB from './config/db.js';
+import { User, Project, Task } from './models/index.js';
 
 const seedDatabase = async () => {
   try {
-    console.log('Synchronizing database (dropping old tables)...');
-    await sequelize.sync({ force: true });
-    console.log('Database synchronized.');
+    console.log('Connecting to database...');
+    await connectDB();
+
+    console.log('Clearing existing data...');
+    await User.deleteMany({});
+    await Project.deleteMany({});
+    await Task.deleteMany({});
+    console.log('Database collections cleared.');
 
     console.log('Seeding users...');
     const hashedAdminPassword = await bcrypt.hash('admin123', 10);
@@ -51,27 +56,16 @@ const seedDatabase = async () => {
     const project1 = await Project.create({
       name: 'Acme Website Redesign',
       description: 'Revamping the landing page, product catalog, and backend CMS for Acme Corp with glassmorphic visuals.',
-      createdBy: admin1.id
+      createdBy: admin1._id,
+      members: [admin1._id, member1._id, member2._id]
     });
 
     const project2 = await Project.create({
       name: 'Android Mobile Application',
       description: 'Developing the initial version of the Kotlin-based Android App including authentication and push notifications.',
-      createdBy: admin1.id
+      createdBy: admin1._id,
+      members: [admin1._id, member1._id, member3._id]
     });
-
-    console.log('Linking project members...');
-    await ProjectMember.bulkCreate([
-      { projectId: project1.id, userId: admin1.id },
-      { projectId: project1.id, userId: member1.id },
-      { projectId: project1.id, userId: member2.id }
-    ]);
-
-    await ProjectMember.bulkCreate([
-      { projectId: project2.id, userId: admin1.id },
-      { projectId: project2.id, userId: member1.id },
-      { projectId: project2.id, userId: member3.id }
-    ]);
 
     console.log('Seeding tasks...');
     
@@ -85,8 +79,8 @@ const seedDatabase = async () => {
     await Task.create({
       title: 'Design UI/UX Mockups',
       description: 'Create high-fidelity Figma mockups showing dashboard states and visual styling assets.',
-      projectId: project1.id,
-      assignedTo: member1.id,
+      project: project1._id,
+      assignedTo: member1._id,
       dueDate: getDateDaysFromNow(-5),
       status: 'done'
     });
@@ -94,8 +88,8 @@ const seedDatabase = async () => {
     await Task.create({
       title: 'Setup Express API Boilerplate',
       description: 'Initialize Git, configure database models, and write auth endpoints with token authorization.',
-      projectId: project1.id,
-      assignedTo: member1.id,
+      project: project1._id,
+      assignedTo: member1._id,
       dueDate: getDateDaysFromNow(-2),
       status: 'in-progress'
     });
@@ -103,8 +97,8 @@ const seedDatabase = async () => {
     await Task.create({
       title: 'Write CSS Variables & Styling Tokens',
       description: 'Construct the global styles sheet, setup modern font face imports, and write glassmorphic layouts.',
-      projectId: project1.id,
-      assignedTo: member2.id,
+      project: project1._id,
+      assignedTo: member2._id,
       dueDate: getDateDaysFromNow(-3),
       status: 'todo'
     });
@@ -112,8 +106,8 @@ const seedDatabase = async () => {
     await Task.create({
       title: 'Integrate React Router & Auth Routing',
       description: 'Design the AuthContext, establish login/signup route flows, and implement protected page widgets.',
-      projectId: project1.id,
-      assignedTo: member2.id,
+      project: project1._id,
+      assignedTo: member2._id,
       dueDate: getDateDaysFromNow(4),
       status: 'todo'
     });
@@ -122,8 +116,8 @@ const seedDatabase = async () => {
     await Task.create({
       title: 'Setup Kotlin App Project',
       description: 'Configure Gradle settings, Android SDK support libraries, and create initial empty activities.',
-      projectId: project2.id,
-      assignedTo: member3.id,
+      project: project2._id,
+      assignedTo: member3._id,
       dueDate: getDateDaysFromNow(2),
       status: 'in-progress'
     });
@@ -131,8 +125,8 @@ const seedDatabase = async () => {
     await Task.create({
       title: 'Design Logo and Identity',
       description: 'Generate high-res vector graphics for launcher icons and splash branding screens.',
-      projectId: project2.id,
-      assignedTo: member1.id,
+      project: project2._id,
+      assignedTo: member1._id,
       dueDate: getDateDaysFromNow(-1),
       status: 'todo'
     });
