@@ -33,7 +33,11 @@ app.use('/api/dashboard', dashboardRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
-  return res.json({ status: 'OK', message: 'Team Task Manager API is running' });
+  return res.json({ 
+    status: 'OK', 
+    message: 'Team Task Manager API is running',
+    nodeEnv: process.env.NODE_ENV 
+  });
 });
 
 // Serve static assets from frontend/dist in production
