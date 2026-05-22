@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import connectDB from './config/db.js';
 
@@ -33,10 +34,22 @@ app.use('/api/dashboard', dashboardRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
+  const distPath = path.join(__dirname, '../frontend/dist');
+  const distExists = fs.existsSync(distPath);
+  let distFiles = [];
+  if (distExists) {
+    try {
+      distFiles = fs.readdirSync(distPath);
+    } catch (e) {
+      distFiles = [e.message];
+    }
+  }
   return res.json({ 
     status: 'OK', 
     message: 'Team Task Manager API is running',
-    nodeEnv: process.env.NODE_ENV 
+    nodeEnv: process.env.NODE_ENV,
+    distExists,
+    distFiles
   });
 });
 
