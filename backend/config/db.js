@@ -3,15 +3,36 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+let cached = global.mongoose;
+
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
+
 const connectDB = async () => {
-  try {
-    const mongoUrl = process.env.MONGO_URL || process.env.MONGODB_URI || 'mongodb://localhost:27017/team-task-manager';
-    await mongoose.connect(mongoUrl);
-    console.log('MongoDB connected successfully');
-  } catch (error) {
-    console.error('MongoDB connection error:', error.message);
-    process.exit(1);
+  if (cached.conn) {
+    return cached.conn;
   }
+
+  if (!cached.promise) {
+    const mongoUrl = process.env.MONGO_URL || process.env.MONGODB_URI || 'mongodb://localhost:27017/team-task-manager';
+    cached.promise = mongoose.connect(mongoUrl).then((mongoose) => {
+      console.log('MongoDB connected successfully');
+      return mongoose;
+    }).catch(error => {
+      console.error('MongoDB connection error:', error.message);
+      throw error;
+    });
+  }
+
+  try {
+    cached.conn = await cached.promise;
+  } catch (e) {
+    cached.promise = null;
+    throw e;
+  }
+
+  return cached.conn;
 };
 
 export default connectDB;

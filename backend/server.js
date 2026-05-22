@@ -25,6 +25,16 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// Ensure DB is connected for serverless environments
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
@@ -99,4 +109,10 @@ const startServer = async () => {
   }
 };
 
-startServer();
+// If not running on Vercel, start the server normally
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+// Export the app for Vercel Serverless Functions
+export default app;
