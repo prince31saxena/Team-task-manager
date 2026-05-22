@@ -44,12 +44,31 @@ app.get('/api/health', (req, res) => {
       distFiles = [e.message];
     }
   }
+  
+  let rootFiles = [];
+  try {
+    rootFiles = fs.readdirSync(process.cwd());
+  } catch (e) {
+    rootFiles = [e.message];
+  }
+
+  let frontendFiles = [];
+  try {
+    frontendFiles = fs.readdirSync(path.join(process.cwd(), 'frontend'));
+  } catch (e) {
+    frontendFiles = [e.message];
+  }
+
   return res.json({ 
     status: 'OK', 
     message: 'Team Task Manager API is running',
     nodeEnv: process.env.NODE_ENV,
+    dirname: __filename,
+    cwd: process.cwd(),
     distExists,
-    distFiles
+    distFiles,
+    rootFiles,
+    frontendFiles
   });
 });
 
